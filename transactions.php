@@ -1,5 +1,5 @@
 <?php
-include 'db_connection.php'; // pastikan path file benar
+include 'db_connection.php';
 ?>
 
 <!DOCTYPE html>
@@ -27,29 +27,40 @@ include 'db_connection.php'; // pastikan path file benar
                 <tr>
                     <th>ID Invoice</th>
                     <th>Tanggal</th>
-                    <th>ID Customer</th>
+                    <th>Customer</th>
+                    <th>Total</th>
                     <th>Aksi</th>
                 </tr>
             </thead>
             <tbody>
-                <!-- PHP code to fetch and display transactions from the database -->
                 <?php
-                $result = $conn->query("SELECT * FROM Transaction_Header");
+                $result = $conn->query("
+                    SELECT th.id_inv, th.date_inv, c.customer_name, 
+                           SUM(p.cost * td.qty) as total
+                    FROM Transaction_Header th
+                    JOIN Customer c ON th.id_cust = c.id_cust
+                    JOIN Transaction_Detail td ON th.id_inv = td.id_inv
+                    JOIN Product p ON td.id_product = p.id_product
+                    GROUP BY th.id_inv, th.date_inv, c.customer_name
+                    ORDER BY th.date_inv DESC, th.id_inv DESC
+                ");
+                
                 while ($row = $result->fetch_assoc()) {
                     echo "<tr>
                             <td>{$row['id_inv']}</td>
                             <td>{$row['date_inv']}</td>
-                            <td>{$row['id_cust']}</td>
-                            <td>
-                                <a href='view_transaction.php?id={$row['id_inv']}'>Lihat</a>
-                                <a href='delete_transaction.php?id={$row['id_inv']}'>Hapus</a>
+                            <td>{$row['customer_name']}</td>
+                            <td>Rp " . number_format($row['total'], 0, ',', '.') . "</td>
+                            <td class='action-links'>
+                                <a href='view_transaction.php?id={$row['id_inv']}' class='view-link'>Lihat</a>
+                                <a href='delete_transaction.php?id={$row['id_inv']}' class='delete-link' onclick='return confirm(\"Yakin ingin menghapus transaksi ini?\")'>Hapus</a>
                             </td>
                           </tr>";
                 }
                 ?>
             </tbody>
         </table>
-        <a href="add_transaction.php">Tambah Transaksi</a>
+        <a href="add_transaction.php" class="btn">Tambah Transaksi</a>
     </main>
 </body>
 </html>

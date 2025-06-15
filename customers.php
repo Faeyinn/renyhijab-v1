@@ -2,7 +2,6 @@
 include 'db_connection.php';
 ?>
 
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -32,23 +31,22 @@ include 'db_connection.php';
                 </tr>
             </thead>
             <tbody>
-                <!-- PHP code to fetch and display customers from the database -->
                 <?php
-                $result = $conn->query("SELECT * FROM Customer");
+                $result = $conn->query("SELECT * FROM Customer ORDER BY id_cust");
                 while ($row = $result->fetch_assoc()) {
                     echo "<tr>
                             <td>{$row['id_cust']}</td>
                             <td>{$row['customer_name']}</td>
-                            <td>
-                                <a href='edit_customer.php?id={$row['id_cust']}'>Edit</a>
-                                <a href='delete_customer.php?id={$row['id_cust']}'>Hapus</a>
+                            <td class='action-links'>
+                                <a href='edit_customer.php?id={$row['id_cust']}' class='edit-link'>Edit</a>
+                                <a href='delete_customer.php?id={$row['id_cust']}' class='delete-link' onclick='return confirm(\"Yakin ingin menghapus customer ini?\")'>Hapus</a>
                             </td>
                           </tr>";
                 }
                 ?>
             </tbody>
         </table>
-        <a href="add_customer.php">Tambah Customer</a>
+        <a href="add_customer.php" class="btn">Tambah Customer</a>
     </main>
 </body>
 </html>

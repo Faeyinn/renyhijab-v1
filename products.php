@@ -1,3 +1,7 @@
+<?php
+include 'db_connection.php';
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -29,27 +33,24 @@
                 </tr>
             </thead>
             <tbody>
-                <!-- PHP code to fetch and display products from the database -->
                 <?php
-                // Include database connection
-                include 'db_connection.php';
-                $result = $conn->query("SELECT * FROM Product");
+                $result = $conn->query("SELECT * FROM Product ORDER BY id_product");
                 while ($row = $result->fetch_assoc()) {
                     echo "<tr>
                             <td>{$row['id_product']}</td>
                             <td>{$row['product_name']}</td>
-                            <td>{$row['cost']}</td>
+                            <td>Rp " . number_format($row['cost'], 0, ',', '.') . "</td>
                             <td>{$row['stok']}</td>
-                            <td>
-                                <a href='edit_product.php?id={$row['id_product']}'>Edit</a>
-                                <a href='delete_product.php?id={$row['id_product']}'>Hapus</a>
+                            <td class='action-links'>
+                                <a href='edit_product.php?id={$row['id_product']}' class='edit-link'>Edit</a>
+                                <a href='delete_product.php?id={$row['id_product']}' class='delete-link' onclick='return confirm(\"Yakin ingin menghapus produk ini?\")'>Hapus</a>
                             </td>
                           </tr>";
                 }
                 ?>
             </tbody>
         </table>
-        <a href="add_product.php">Tambah Produk</a>
+        <a href="add_product.php" class="btn">Tambah Produk</a>
     </main>
 </body>
 </html>
