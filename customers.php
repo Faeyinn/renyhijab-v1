@@ -35,7 +35,7 @@ include 'db_connection.php';
                 $result = $conn->query("SELECT * FROM Customer ORDER BY id_cust");
                 while ($row = $result->fetch_assoc()) {
                     echo "<tr>
-                            <td>{$row['id_cust']}</td>
+                            <td>CUST-{$row['id_cust']}</td>
                             <td>{$row['customer_name']}</td>
                             <td class='action-links'>
                                 <a href='edit_customer.php?id={$row['id_cust']}' class='edit-link'>Edit</a>

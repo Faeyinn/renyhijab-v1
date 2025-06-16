@@ -37,7 +37,7 @@ include 'db_connection.php';
                 $result = $conn->query("SELECT * FROM Product ORDER BY id_product");
                 while ($row = $result->fetch_assoc()) {
                     echo "<tr>
-                            <td>{$row['id_product']}</td>
+                            <td>PRD-{$row['id_product']}</td>
                             <td>{$row['product_name']}</td>
                             <td>Rp " . number_format($row['cost'], 0, ',', '.') . "</td>
                             <td>{$row['stok']}</td>
