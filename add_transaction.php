@@ -13,35 +13,84 @@ if ($_POST) {
     $selected_products = $_POST['products'] ?? [];
     $quantities = $_POST['quantities'] ?? [];
     
-    // Get next invoice ID
-    $result = $conn->query("SELECT MAX(id_inv) as max_id FROM Transaction_Header");
-    $row = $result->fetch_assoc();
-    $next_id = $row['max_id'] + 1;
-    
-    // Start transaction
-    $conn->begin_transaction();
-    
-    try {
-        // Insert transaction header
-        $stmt = $conn->prepare("INSERT INTO Transaction_Header (id_inv, date_inv, id_cust) VALUES (?, ?, ?)");
-        $stmt->bind_param("isi", $next_id, $date_inv, $id_cust);
-        $stmt->execute();
-        
-        // Insert transaction details
-        foreach ($selected_products as $index => $product_id) {
-            if (!empty($quantities[$index]) && $quantities[$index] > 0) {
-                $stmt_detail = $conn->prepare("INSERT INTO Transaction_Detail (id_inv, id_product, qty) VALUES (?, ?, ?)");
-                $stmt_detail->bind_param("iii", $next_id, $product_id, $quantities[$index]);
-                $stmt_detail->execute();
-            }
+    // Validate that we have products selected
+    $valid_products = [];
+    foreach ($selected_products as $index => $product_id) {
+        if (!empty($quantities[$index]) && $quantities[$index] > 0) {
+            $valid_products[] = [
+                'id' => $product_id,
+                'qty' => $quantities[$index]
+            ];
         }
+    }
+    
+    if (empty($valid_products)) {
+        $message = "Error: Pilih minimal satu produk dengan quantity yang valid!";
+    } else {
+        // Get next invoice ID
+        $result = $conn->query("SELECT MAX(id_inv) as max_id FROM Transaction_Header");
+        $row = $result->fetch_assoc();
+        $next_id = $row['max_id'] + 1;
         
-        $conn->commit();
-        $message = "Transaksi berhasil ditambahkan!";
+        // Start transaction
+        $conn->begin_transaction();
         
-    } catch (Exception $e) {
-        $conn->rollback();
-        $message = "Error: " . $e->getMessage();
+        try {
+            // First, check stock availability for all products
+            $stock_errors = [];
+            foreach ($valid_products as $item) {
+                $stock_check = $conn->prepare("SELECT product_name, stok FROM Product WHERE id_product = ?");
+                $stock_check->bind_param("i", $item['id']);
+                $stock_check->execute();
+                $product_info = $stock_check->get_result()->fetch_assoc();
+                
+                if (!$product_info) {
+                    $stock_errors[] = "Produk dengan ID {$item['id']} tidak ditemukan";
+                } elseif ($product_info['stok'] < $item['qty']) {
+                    $stock_errors[] = "Stok {$product_info['product_name']} tidak mencukupi (tersedia: {$product_info['stok']}, diminta: {$item['qty']})";
+                }
+            }
+            
+            // If there are stock errors, throw exception
+            if (!empty($stock_errors)) {
+                throw new Exception(implode("; ", $stock_errors));
+            }
+            
+            // Insert transaction header
+            $stmt = $conn->prepare("INSERT INTO Transaction_Header (id_inv, date_inv, id_cust) VALUES (?, ?, ?)");
+            $stmt->bind_param("isi", $next_id, $date_inv, $id_cust);
+            $stmt->execute();
+            
+            // Insert transaction details and update stock
+            foreach ($valid_products as $item) {
+                // Insert transaction detail
+                $stmt_detail = $conn->prepare("INSERT INTO Transaction_Detail (id_inv, id_product, qty) VALUES (?, ?, ?)");
+                $stmt_detail->bind_param("iii", $next_id, $item['id'], $item['qty']);
+                $stmt_detail->execute();
+                
+                // Update stock - reduce by quantity sold
+                $stmt_stock = $conn->prepare("UPDATE Product SET stok = stok - ? WHERE id_product = ?");
+                $stmt_stock->bind_param("ii", $item['qty'], $item['id']);
+                $stmt_stock->execute();
+                
+                // Double check that update was successful and stock didn't go negative
+                $verify_stock = $conn->prepare("SELECT stok FROM Product WHERE id_product = ?");
+                $verify_stock->bind_param("i", $item['id']);
+                $verify_stock->execute();
+                $new_stock = $verify_stock->get_result()->fetch_assoc()['stok'];
+                
+                if ($new_stock < 0) {
+                    throw new Exception("Error: Stok menjadi negatif setelah transaksi");
+                }
+            }
+            
+            $conn->commit();
+            $message = "Transaksi berhasil ditambahkan! Stok produk telah diupdate.";
+            
+        } catch (Exception $e) {
+            $conn->rollback();
+            $message = "Error: " . $e->getMessage();
+        }
     }
 }
 ?>
@@ -68,7 +117,9 @@ if ($_POST) {
         <h2>Tambah Transaksi Baru</h2>
         
         <?php if ($message): ?>
-            <div class="alert"><?php echo $message; ?></div>
+            <div class="alert <?php echo strpos($message, 'Error:') === 0 ? 'alert-error' : ''; ?>">
+                <?php echo $message; ?>
+            </div>
         <?php endif; ?>
         
         <div class="form-container">
@@ -78,7 +129,8 @@ if ($_POST) {
                     <select id="id_cust" name="id_cust" required>
                         <option value="">Pilih Customer</option>
                         <?php while ($customer = $customers->fetch_assoc()): ?>
-                            <option value="<?php echo $customer['id_cust']; ?>">
+                            <option value="<?php echo $customer['id_cust']; ?>" 
+                                    <?php echo (isset($_POST['id_cust']) && $_POST['id_cust'] == $customer['id_cust']) ? 'selected' : ''; ?>>
                                 <?php echo $customer['customer_name']; ?>
                             </option>
                         <?php endwhile; ?>
@@ -87,7 +139,8 @@ if ($_POST) {
                 
                 <div class="form-group">
                     <label for="date_inv">Tanggal:</label>
-                    <input type="date" id="date_inv" name="date_inv" value="<?php echo date('Y-m-d'); ?>" required>
+                    <input type="date" id="date_inv" name="date_inv" 
+                           value="<?php echo isset($_POST['date_inv']) ? $_POST['date_inv'] : date('Y-m-d'); ?>" required>
                 </div>
                 
                 <h3>Produk</h3>
@@ -96,14 +149,25 @@ if ($_POST) {
                     $products->data_seek(0); // Reset pointer
                     $index = 0;
                     while ($product = $products->fetch_assoc()): 
+                        $is_checked = isset($_POST['products']) && in_array($product['id_product'], $_POST['products']);
+                        $qty_value = $is_checked && isset($_POST['quantities'][$index]) ? $_POST['quantities'][$index] : '';
                     ?>
                         <div class="product-item" style="display: flex; align-items: center; margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
                             <input type="checkbox" name="products[]" value="<?php echo $product['id_product']; ?>" 
-                                   onchange="toggleQuantity(this, <?php echo $index; ?>)" style="margin-right: 10px;">
-                            <span style="flex: 1;"><?php echo $product['product_name']; ?> 
-                                  (Rp <?php echo number_format($product['cost'], 0, ',', '.'); ?> - Stok: <?php echo $product['stok']; ?>)</span>
-                            <input type="number" name="quantities[]" id="qty_<?php echo $index; ?>" min="1" 
-                                   max="<?php echo $product['stok']; ?>" placeholder="Qty" disabled 
+                                   onchange="toggleQuantity(this, <?php echo $index; ?>)" 
+                                   <?php echo $is_checked ? 'checked' : ''; ?>
+                                   style="margin-right: 10px;">
+                            <span style="flex: 1;">
+                                <?php echo $product['product_name']; ?> 
+                                (Rp <?php echo number_format($product['cost'], 0, ',', '.'); ?> - 
+                                <span class="stock-info <?php echo $product['stok'] <= 5 ? 'low-stock' : ''; ?>">
+                                    Stok: <?php echo $product['stok']; ?>
+                                </span>)
+                            </span>
+                            <input type="number" name="quantities[]" id="qty_<?php echo $index; ?>" 
+                                   min="1" max="<?php echo $product['stok']; ?>" 
+                                   placeholder="Qty" value="<?php echo $qty_value; ?>"
+                                   <?php echo !$is_checked ? 'disabled' : ''; ?>
                                    style="width: 80px; margin-left: 10px;">
                         </div>
                     <?php 
@@ -130,6 +194,30 @@ if ($_POST) {
                 qtyInput.value = '';
             }
         }
+        
+        // Initialize quantity inputs on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const checkboxes = document.querySelectorAll('input[name="products[]"]');
+            checkboxes.forEach((checkbox, index) => {
+                toggleQuantity(checkbox, index);
+            });
+        });
     </script>
+    
+    <style>
+        .alert-error {
+            background: linear-gradient(135deg, #EF4444, #DC2626) !important;
+            color: white;
+        }
+        
+        .low-stock {
+            color: #EF4444;
+            font-weight: bold;
+        }
+        
+        .stock-info {
+            font-weight: 500;
+        }
+    </style>
 </body>
 </html>
